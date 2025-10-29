@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface JournalRepository extends JpaRepository<JournalEntity, Long> {
     List<JournalEntity> findByKeycloakUserId(String keycloakUserId);
+    int deleteByKeycloakUserId(String keycloakUserId);
 }
