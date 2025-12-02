@@ -1,0 +1,174 @@
+openapi: 3.0.3
+info:
+  title: OpenLeaf Journal Service API
+  description: API for managing patient journal entries
+  version: 1.0.0
+  contact:
+    name: OpenLeaf Team
+
+servers:
+  - url: http://localhost:8083
+    description: Local development server
+  - url: http://localhost:8081/api/journals
+    description: Via API Gateway
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/journals/create:
+    post:
+      summary: Create a new journal entry
+      description: Allows authenticated patients to create a new journal entry
+      tags:
+        - Journal
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  description: The journal entry content
+                  minLength: 1
+                  maxLength: 10000
+                  example: "Today was a good day. I felt more positive about things."
+      responses:
+        '201':
+          description: Journal entry created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Journal'
+        '400':
+          description: Bad request - invalid input
+        '401':
+          description: Unauthorized - invalid or missing token
+        '500':
+          description: Internal server error
+
+  /api/journals:
+    get:
+      summary: Get all journals for the authenticated user
+      description: Returns all journal entries for the currently authenticated patient
+      tags:
+        - Journal
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of journal entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Journal'
+        '401':
+          description: Unauthorized - invalid or missing token
+        '500':
+          description: Internal server error
+
+  /api/journals/{id}:
+    get:
+      summary: Get a specific journal entry by ID
+      description: Returns a single journal entry if the user owns it or is assigned therapist
+      tags:
+        - Journal
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The journal entry ID
+      responses:
+        '200':
+          description: Journal entry found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Journal'
+        '401':
+          description: Unauthorized - invalid or missing token
+        '403':
+          description: Forbidden - not authorized to view this journal
+        '404':
+          description: Journal entry not found
+        '500':
+          description: Internal server error
+
+  /actuator/health:
+    get:
+      summary: Health check endpoint
+      description: Returns the health status of the service
+      tags:
+        - Monitoring
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token from Keycloak authentication
+
+  schemas:
+    Journal:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier for the journal entry
+          example: 1
+        keycloakUserId:
+          type: string
+          description: Keycloak user ID of the journal owner
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        content:
+          type: string
+          description: The journal entry content
+          example: "Today was a good day. I felt more positive about things."
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when the journal was created
+          example: "2024-12-01T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Timestamp when the journal was last updated
+          example: "2024-12-01T10:30:00Z"
+      required:
+        - id
+        - keycloakUserId
+        - content
+        - createdAt
+
+tags:
+  - name: Journal
+    description: Journal entry management operations
+  - name: Monitoring
+    description: Health and monitoring endpoints

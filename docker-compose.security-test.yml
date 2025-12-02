@@ -1,0 +1,96 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for Journal Service
+  journal-db:
+    image: postgres:15-alpine
+    container_name: journal-db-test
+    environment:
+      POSTGRES_DB: journal_db
+      POSTGRES_USER: journal_user
+      POSTGRES_PASSWORD: journal_pass
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U journal_user -d journal_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - security-test-net
+
+  # RabbitMQ for message queuing
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq-test
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - security-test-net
+
+  # Journal Service
+  journal-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: journal-service-test
+    depends_on:
+      journal-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://journal-db:5432/journal_db
+      SPRING_DATASOURCE_USERNAME: journal_user
+      SPRING_DATASOURCE_PASSWORD: journal_pass
+      SPRING_JPA_HIBERNATE_DDL_AUTO: create
+      SERVER_PORT: 8083
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: guest
+      SPRING_RABBITMQ_PASSWORD: guest
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:8080/realms/openleaf
+    ports:
+      - "8083:8083"
+    networks:
+      - security-test-net
+
+  # OWASP ZAP - FULL SCAN (More comprehensive)
+  zap-full:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: owasp-zap-full
+    depends_on:
+      - journal-service
+    command: >
+      bash -c "
+      echo '⚠️  Starting FULL SCAN - This will take 20-60 minutes';
+      echo 'Waiting for service to be ready...';
+      sleep 90;
+      echo 'Starting comprehensive security scan...';
+      zap-full-scan.py
+      -t http://journal-service:8083
+      -r zap-full-report.html
+      -w zap-full-report.md
+      -J zap-full-report.json
+      -a
+      -j
+      "
+    volumes:
+      - ./zap-reports:/zap/wrk
+      - ./.zap:/zap/config
+    working_dir: /zap/wrk
+    networks:
+      - security-test-net
+
+networks:
+  security-test-net:
+    driver: bridge

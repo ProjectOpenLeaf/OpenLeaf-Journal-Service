@@ -1,0 +1,45 @@
+# OWASP ZAP Custom Rules Configuration
+# Format: alert_id	RISK_LEVEL	(where RISK_LEVEL = IGNORE, INFO, LOW, MEDIUM, HIGH)
+#
+# This file allows you to customize which alerts ZAP reports and at what severity
+# Leave blank to use default ZAP rules, or customize based on your needs
+
+# Example: Reduce false positives or ignore certain alerts
+# 10021	IGNORE	# X-Content-Type-Options header missing (if you handle this elsewhere)
+# 10020	LOW	# X-Frame-Options header missing (downgrade from MEDIUM to LOW)
+
+# SQL Injection - Keep HIGH
+40018	HIGH
+90018	HIGH
+
+# XSS - Keep HIGH
+40012	HIGH
+40014	HIGH
+40016	HIGH
+40017	HIGH
+
+# Authentication/Session Management - Keep HIGH
+10202	HIGH
+40013	HIGH
+
+# CSRF - Keep MEDIUM (you use JWT tokens)
+10202	MEDIUM
+
+# Information Disclosure - Adjust as needed
+10096	LOW	# Timestamp disclosure
+10109	INFO	# Modern Web Application (not really a risk)
+
+# Security Headers - Keep MEDIUM
+10020	MEDIUM	# X-Frame-Options
+10021	MEDIUM	# X-Content-Type-Options
+10055	LOW	# CSP Header (might not be needed for API)
+10063	LOW	# Feature Policy Header
+
+# SSL/TLS - Keep HIGH (when you implement HTTPS)
+# For now, you're testing on localhost HTTP, so these will be false positives
+
+# API Specific
+90033	HIGH	# Loosely Scoped JWT
+90034	HIGH	# JWT None Algorithm
+
+# Keep all other rules at their default severity
