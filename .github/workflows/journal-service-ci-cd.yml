@@ -278,12 +278,17 @@ jobs:
             sleep 2
           done
 
+      - name: Create ZAP Reports Directory
+        run: |
+          mkdir -p zap-reports
+          chmod 777 zap-reports
+
       - name: OWASP ZAP Baseline Scan
         run: |
           echo "🕷️ Starting OWASP ZAP Baseline Scan..."
 
           docker run --rm --network="host" \
-            -v ${{ github.workspace }}:/zap/wrk/:rw \
+            -v ${{ github.workspace }}/zap-reports:/zap/wrk/:rw \
             -t ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t http://localhost:8083 \
@@ -294,18 +299,16 @@ jobs:
 
           echo "✅ ZAP scan completed!"
 
-          # Show files that were created
-          ls -lh zap-report.*
+          # Show generated files
+          echo "Generated reports:"
+          ls -lh zap-reports/
 
-      - name: Upload ZAP Baseline Report
+      - name: Upload ZAP Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zap-baseline-report
-          path: |
-            zap-report.html
-            zap-report.json
-            zap-report.md
+          path: zap-reports/*
           retention-days: 30
           if-no-files-found: warn
 
@@ -315,11 +318,11 @@ jobs:
           echo "## 🕷️ OWASP ZAP Security Scan Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ -f "zap-report.json" ]; then
-            HIGH=$(jq '[.site[0].alerts[] | select(.riskcode=="3")] | length' zap-report.json 2>/dev/null || echo "0")
-            MEDIUM=$(jq '[.site[0].alerts[] | select(.riskcode=="2")] | length' zap-report.json 2>/dev/null || echo "0")
-            LOW=$(jq '[.site[0].alerts[] | select(.riskcode=="1")] | length' zap-report.json 2>/dev/null || echo "0")
-            INFO=$(jq '[.site[0].alerts[] | select(.riskcode=="0")] | length' zap-report.json 2>/dev/null || echo "0")
+          if [ -f "zap-reports/zap-report.json" ]; then
+            HIGH=$(jq '[.site[0].alerts[] | select(.riskcode=="3")] | length' zap-reports/zap-report.json 2>/dev/null || echo "0")
+            MEDIUM=$(jq '[.site[0].alerts[] | select(.riskcode=="2")] | length' zap-reports/zap-report.json 2>/dev/null || echo "0")
+            LOW=$(jq '[.site[0].alerts[] | select(.riskcode=="1")] | length' zap-reports/zap-report.json 2>/dev/null || echo "0")
+            INFO=$(jq '[.site[0].alerts[] | select(.riskcode=="0")] | length' zap-reports/zap-report.json 2>/dev/null || echo "0")
 
             echo "### Alert Summary" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
