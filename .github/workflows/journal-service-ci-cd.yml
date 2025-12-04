@@ -192,194 +192,166 @@ jobs:
   # ========================================
   # 🕷️ OWASP ZAP Security Scan
   # ========================================
-  security-scan:
-    runs-on: ubuntu-latest
-    needs: build-test-analyze
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'  # Only run on main pushes
+security-scan:
+  runs-on: ubuntu-latest
+  needs: build-test-analyze
+  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
-    permissions:
-      contents: read
-      issues: write  # To create issues for findings
+  permissions:
+    contents: read
+    actions: write
+    security-events: write
 
-    services:
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: journal_db
-          POSTGRES_USER: journal_user
-          POSTGRES_PASSWORD: journal_pass
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+  services:
+    postgres:
+      image: postgres:15-alpine
+      env:
+        POSTGRES_DB: journal_db
+        POSTGRES_USER: journal_user
+        POSTGRES_PASSWORD: journal_pass
+      ports:
+        - 5432:5432
+      options: >-
+        --health-cmd pg_isready
+        --health-interval 10s
+        --health-timeout 5s
+        --health-retries 5
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    rabbitmq:
+      image: rabbitmq:3-management-alpine
+      env:
+        RABBITMQ_DEFAULT_USER: guest
+        RABBITMQ_DEFAULT_PASS: guest
+      ports:
+        - 5672:5672
+      options: >-
+        --health-cmd "rabbitmq-diagnostics ping"
+        --health-interval 10s
+        --health-timeout 5s
+        --health-retries 5
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Cache Gradle packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: ${{ runner.os }}-gradle-
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
 
-      - name: Make Gradle Wrapper executable
-        run: chmod +x gradlew
+    - name: Cache Gradle packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: ${{ runner.os }}-gradle-
 
-      - name: Build application JAR
-        run: ./gradlew clean build -x test
+    - name: Make Gradle Wrapper executable
+      run: chmod +x gradlew
 
-      - name: Start Journal Service
-        run: |
-          # Start the service in background
-          java -jar build/libs/*.jar \
-            --spring.datasource.url=jdbc:postgresql://localhost:5432/journal_db \
-            --spring.datasource.username=journal_user \
-            --spring.datasource.password=journal_pass \
-            --server.port=8083 \
-            --spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8080/realms/openleaf \
-            --spring.jpa.hibernate.ddl-auto=create \
-            > app.log 2>&1 &
-          
-          # Save the PID
-          echo $! > app.pid
-          
-          # Wait for service to be ready (max 60 seconds)
-          echo "Waiting for service to start..."
-          for i in {1..30}; do
-            if curl -s http://localhost:8083/actuator/health > /dev/null; then
-              echo "✅ Service is ready!"
-              break
-            fi
-            echo "Waiting... ($i/30)"
-            sleep 2
-          done
-          
-          # Show logs if service didn't start
-          if ! curl -s http://localhost:8083/actuator/health > /dev/null; then
-            echo "❌ Service failed to start. Logs:"
-            cat app.log
-            exit 1
+    - name: Build application JAR
+      run: ./gradlew clean build -x test
+
+    - name: Start Journal Service
+      run: |
+        java -jar build/libs/*.jar \
+          --spring.datasource.url=jdbc:postgresql://localhost:5432/journal_db \
+          --spring.datasource.username=journal_user \
+          --spring.datasource.password=journal_pass \
+          --spring.rabbitmq.host=localhost \
+          --spring.rabbitmq.port=5672 \
+          --server.port=8083 \
+          --spring.jpa.hibernate.ddl-auto=create \
+          > app.log 2>&1 &
+        
+        echo $! > app.pid
+        
+        echo "Waiting for service to start..."
+        for i in {1..30}; do
+          if curl -s http://localhost:8083/actuator/health > /dev/null 2>&1; then
+            echo "✅ Service is ready!"
+            break
           fi
+          echo "Waiting... ($i/30)"
+          sleep 2
+        done
+        
+        if ! curl -s http://localhost:8083/actuator/health > /dev/null 2>&1; then
+          echo "❌ Service failed to start. Logs:"
+          cat app.log
+          exit 1
+        fi
 
-      - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.12.0
-        with:
-          target: 'http://localhost:8083'
-          rules_file_name: '.zap/rules.tsv'
-          cmd_options: '-a -j -l WARN -T 10'  # -a for all alerts, -j for JSON output, -T for max time
-          fail_action: false  # Don't fail build, just report
-          allow_issue_writing: false  # We'll handle issues ourselves
+    - name: OWASP ZAP Baseline Scan
+      uses: zaproxy/action-baseline@v0.12.0
+      with:
+        target: 'http://localhost:8083'
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a -j -l WARN -T 10'
+        fail_action: false
+        allow_issue_writing: false
+        artifact_name: ''  # Disable built-in artifact upload
 
-      - name: OWASP ZAP API Scan
-        uses: zaproxy/action-api-scan@v0.7.0
-        with:
-          target: 'http://localhost:8083'
-          format: openapi
-          api_spec: '.zap/openapi.yaml'  # You'll need to create this
-          cmd_options: '-a -j'
-          fail_action: false
-          allow_issue_writing: false
+    - name: Upload ZAP Baseline Report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: zap-baseline-report
+        path: |
+          report_html.html
+          report_json.json
+          report_md.md
+        retention-days: 30
+        if-no-files-found: warn
 
-      - name: OWASP ZAP Full Scan (Authenticated)
-        run: |
-          docker run --network="host" -v $(pwd):/zap/wrk/:rw \
-            -t ghcr.io/zaproxy/zaproxy:stable zap-full-scan.py \
-            -t http://localhost:8083 \
-            -r zap-full-report.html \
-            -w zap-full-report.md \
-            -J zap-full-report.json \
-            -x zap-full-report.xml \
-            -a \
-            -j \
-            -l WARN \
-            -z "-config api.addrs.addr.name=.* -config api.addrs.addr.regex=true" \
-            || true  # Don't fail build
-
-      - name: Upload ZAP Baseline Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-baseline-report
-          path: |
-            report_html.html
-            report_json.json
-            report_md.md
-
-      - name: Upload ZAP Full Scan Report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-full-scan-report
-          path: |
-            zap-full-report.html
-            zap-full-report.md
-            zap-full-report.json
-            zap-full-report.xml
-
-      - name: Parse ZAP Report and Create Summary
-        if: always()
-        run: |
-          echo "## 🕷️ OWASP ZAP Security Scan Results" >> $GITHUB_STEP_SUMMARY
+    - name: Create ZAP Report Summary
+      if: always()
+      run: |
+        echo "## 🕷️ OWASP ZAP Security Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f "report_json.json" ]; then
+          HIGH=$(jq '[.site[0].alerts[] | select(.riskcode=="3")] | length' report_json.json 2>/dev/null || echo "0")
+          MEDIUM=$(jq '[.site[0].alerts[] | select(.riskcode=="2")] | length' report_json.json 2>/dev/null || echo "0")
+          LOW=$(jq '[.site[0].alerts[] | select(.riskcode=="1")] | length' report_json.json 2>/dev/null || echo "0")
+          INFO=$(jq '[.site[0].alerts[] | select(.riskcode=="0")] | length' report_json.json 2>/dev/null || echo "0")
+        
+          echo "### Alert Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Check if JSON report exists
-          if [ -f "zap-full-report.json" ]; then
-            # Parse JSON for summary (requires jq)
-            HIGH=$(jq '[.site[0].alerts[] | select(.riskcode=="3")] | length' zap-full-report.json || echo "0")
-            MEDIUM=$(jq '[.site[0].alerts[] | select(.riskcode=="2")] | length' zap-full-report.json || echo "0")
-            LOW=$(jq '[.site[0].alerts[] | select(.riskcode=="1")] | length' zap-full-report.json || echo "0")
-            INFO=$(jq '[.site[0].alerts[] | select(.riskcode=="0")] | length' zap-full-report.json || echo "0")
-          
-            echo "### Alert Summary" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
-            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-            echo "| 🔴 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟠 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🟡 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
-            echo "| ℹ️ Info | $INFO |" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          
-            # Create alerts if high or medium found
-            if [ "$HIGH" -gt "0" ] || [ "$MEDIUM" -gt "0" ]; then
-              echo "⚠️ **Action Required:** High or Medium severity issues found!" >> $GITHUB_STEP_SUMMARY
-            else
-              echo "✅ **No critical security issues found**" >> $GITHUB_STEP_SUMMARY
-            fi
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 Medium | $MEDIUM |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+          echo "| ℹ️ Info | $INFO |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        
+          if [ "$HIGH" -gt "0" ] || [ "$MEDIUM" -gt "0" ]; then
+            echo "⚠️ **Action Required:** High or Medium severity issues found!" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ ZAP report not found" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **No critical security issues found**" >> $GITHUB_STEP_SUMMARY
           fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 Download detailed reports from the artifacts section below" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ ZAP report not found" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📊 Download detailed reports from the artifacts section" >> $GITHUB_STEP_SUMMARY
 
-      - name: Stop Journal Service
-        if: always()
-        run: |
-          if [ -f app.pid ]; then
-            kill $(cat app.pid) || true
-          fi
-          
-          # Show final logs
-          echo "Final application logs:"
-          cat app.log || true
+    - name: Stop Journal Service
+      if: always()
+      run: |
+        if [ -f app.pid ]; then
+          kill $(cat app.pid) || true
+        fi
 
-      - name: Upload Application Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: journal-service-logs
-          path: app.log
+    - name: Upload Application Logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: journal-service-logs
+        path: app.log
+        if-no-files-found: warn
