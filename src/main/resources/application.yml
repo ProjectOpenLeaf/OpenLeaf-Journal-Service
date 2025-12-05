@@ -2,24 +2,14 @@ server:
   port: 8082
 
 spring:
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: guest
-    password: guest
-    connection-timeout: 10000
-    requested-heartbeat: 30
-    listener:
-      simple:
-        default-requeue-rejected: false
   application:
     name: journal-service
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/openleaf_journals
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/openleaf_journals}
     driver-class-name: org.postgresql.Driver
-    username: postgres
-    password: postgres
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
 
   jpa:
     hibernate:
@@ -29,6 +19,17 @@ spring:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:guest}
+    password: ${SPRING_RABBITMQ_PASSWORD:guest}
+    connection-timeout: 10000
+    requested-heartbeat: 30
+    listener:
+      simple:
+        default-requeue-rejected: false
 
 management:
   endpoints:
