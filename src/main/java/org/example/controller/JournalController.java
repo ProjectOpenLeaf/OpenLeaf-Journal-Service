@@ -7,7 +7,9 @@ import org.example.business.JournalCreator;
 import org.example.business.dto.CreateJournalRequest;
 import org.example.business.dto.CreateJournalResponse;
 import org.example.business.dto.GetJournalResponse;
+import org.example.business.dto.PaginatedJournalResponse;
 import org.example.domain.Journal;
+import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -62,6 +64,42 @@ public class JournalController {
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(responses);
+    }
+
+    @GetMapping("/paginated")
+    public ResponseEntity<PaginatedJournalResponse> getAllJournalsPaginated(
+            @RequestHeader("X-User-Id") String keycloakUserId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        // Limit max page size to prevent abuse
+        if (size > 100) {
+            size = 100;
+        }
+
+        Page<Journal> journalPage = getAllJournals.getAllByUserPaginated(keycloakUserId, page, size);
+
+        List<GetJournalResponse> journals = journalPage.getContent().stream()
+                .map(journal -> GetJournalResponse.builder()
+                        .id(journal.getId())
+                        .keycloakUserId(journal.getKeycloakUserId())
+                        .content(journal.getContent())
+                        .createdAt(journal.getCreatedAt())
+                        .updatedAt(journal.getUpdatedAt())
+                        .build())
+                .collect(Collectors.toList());
+
+        PaginatedJournalResponse response = PaginatedJournalResponse.builder()
+                .journals(journals)
+                .currentPage(journalPage.getNumber())
+                .totalPages(journalPage.getTotalPages())
+                .totalItems(journalPage.getTotalElements())
+                .pageSize(journalPage.getSize())
+                .hasNext(journalPage.hasNext())
+                .hasPrevious(journalPage.hasPrevious())
+                .build();
+
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{id}")

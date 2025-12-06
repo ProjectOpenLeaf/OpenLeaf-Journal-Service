@@ -5,6 +5,9 @@ import org.example.business.GetAllJournals;
 import org.example.domain.Journal;
 import org.example.persistance.JournalRepository;
 import org.example.persistance.entity.JournalEntity;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -22,6 +25,17 @@ public class GetAllJournalsImpl implements GetAllJournals {
         return entities.stream()
                 .map(this::toJournal)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public Page<Journal> getAllByUserPaginated(String keycloakUserId, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<JournalEntity> entityPage = journalRepository.findByKeycloakUserIdOrderByCreatedAtDesc(
+                keycloakUserId,
+                pageable
+        );
+
+        return entityPage.map(this::toJournal);
     }
 
     private Journal toJournal(JournalEntity entity) {
