@@ -32,8 +32,6 @@ spring:
         default-requeue-rejected: false
 
 management:
-  server:
-    port: 9090  # Management port (internal only)
   endpoints:
     web:
       exposure:
@@ -41,8 +39,6 @@ management:
   endpoint:
     prometheus:
       enabled: true
-    health:
-      show-details: always  # Keep details for Prometheus
   metrics:
     export:
       prometheus:
