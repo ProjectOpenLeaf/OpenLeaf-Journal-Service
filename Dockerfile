@@ -1,4 +1,4 @@
-# Multi-stage build for User Profile Service (Gradle)
+# Multi-stage build for Journal Service (Gradle)
 FROM gradle:8.5-jdk17-alpine AS build
 
 WORKDIR /app
@@ -18,8 +18,13 @@ COPY src src
 # Build the application
 RUN ./gradlew clean build -x test --no-daemon
 
-# Runtime stage
+# Runtime stage - Use latest temurin alpine image
 FROM eclipse-temurin:17-jre-alpine
+
+# 🔒 SECURITY: Update Alpine packages to fix CVE vulnerabilities
+RUN apk update && \
+    apk upgrade --no-cache && \
+    rm -rf /var/cache/apk/*
 
 WORKDIR /app
 
@@ -31,11 +36,11 @@ RUN addgroup -S spring && adduser -S spring -G spring
 USER spring:spring
 
 # Expose the service port
-EXPOSE 8082
+EXPOSE 8083
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8082/actuator/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8083/actuator/health || exit 1
 
 # Run the application
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
